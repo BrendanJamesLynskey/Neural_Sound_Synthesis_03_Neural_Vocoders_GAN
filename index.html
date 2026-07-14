@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Sound Synthesis · Part 3 — Neural Vocoders (GAN)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root {
+  --bg: #0a0b0f;
+  --bg2: #12141c;
+  --bg3: #1a1d2a;
+  --fg: #d4d6e0;
+  --fg-dim: #8a8d9a;
+  --accent: #e85a7a;
+  --accent2: #8b7bf0;
+  --accent3: #5ce89a;
+  --accent4: #e85a7a;
+  --accent5: #e8a44a;
+  --border: #2a2d3a;
+  --glow: rgba(74,199,232,0.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--fg);font-family:'Palatino Linotype','Book Antiqua',Palatino,'Georgia',serif;line-height:1.75;overflow-x:hidden}
+::selection{background:var(--accent);color:var(--bg)}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .2s}
+a:hover{border-bottom-color:var(--accent)}
+
+header{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;position:relative;overflow:hidden}
+header canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;opacity:.5}
+header .content{position:relative;z-index:1;max-width:880px}
+header .eyebrow{font-family:'Lucida Console',Monaco,monospace;font-size:.8rem;letter-spacing:.3em;text-transform:uppercase;color:var(--accent2);margin-bottom:1.4em}
+header h1{font-size:clamp(2rem,5vw,3.4rem);font-weight:300;letter-spacing:.04em;color:var(--accent);text-shadow:0 0 60px rgba(74,199,232,.3);margin-bottom:.3em}
+header h1 em{font-style:italic;color:var(--fg);font-weight:400}
+header .subtitle{font-size:1.12rem;color:var(--fg-dim);max-width:680px;margin:0 auto 2em}
+header .people{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-bottom:2em}
+header .people span{font-size:.85rem;color:var(--fg);padding:.35em .9em;border:1px solid var(--border);border-radius:2px;background:rgba(26,29,42,.7)}
+header .cta{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap}
+
+nav#toc{position:sticky;top:0;z-index:100;background:rgba(10,11,15,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:.6rem 1rem;overflow-x:auto;white-space:nowrap;text-align:center}
+nav#toc a{display:inline-block;font-size:.78rem;color:var(--fg-dim);padding:.3em .7em;margin:0 .1em;letter-spacing:.04em;text-transform:uppercase;font-family:'Lucida Console',Monaco,monospace;transition:color .2s;border-bottom:none}
+nav#toc a:hover,nav#toc a.active{color:var(--accent)}
+
+section{max-width:920px;margin:0 auto;padding:4rem 1.5rem;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+h2{font-size:clamp(1.5rem,3vw,2.2rem);font-weight:300;color:var(--accent);margin-bottom:.3em;letter-spacing:.03em}
+h2 .num{font-family:'Lucida Console',Monaco,monospace;font-size:.7em;color:var(--fg-dim);margin-right:.5em}
+h3{font-size:1.2rem;color:var(--accent2);margin:2em 0 .5em;font-weight:400}
+h4{font-size:1rem;color:var(--accent3);margin:1.5em 0 .3em;font-weight:400}
+p{margin-bottom:1.2em}
+ul,ol{padding-left:1.4em;margin-bottom:1.2em}
+li{margin-bottom:.5em}
+.lead{font-size:1.08rem;color:var(--fg);margin-bottom:1.5em}
+
+.viz{margin:2em 0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.viz canvas{display:block;width:100%;cursor:crosshair}
+.viz-caption{font-size:.8rem;color:var(--fg-dim);padding:.6em 1em;border-top:1px solid var(--border);font-family:'Lucida Console',Monaco,monospace}
+
+.controls{display:flex;flex-wrap:wrap;gap:.8rem;padding:.8em 1em;background:var(--bg3);border-top:1px solid var(--border);align-items:center}
+.controls label{font-size:.78rem;color:var(--fg-dim);font-family:'Lucida Console',Monaco,monospace;display:flex;align-items:center;gap:.4em}
+.controls input[type="range"]{width:120px;accent-color:var(--accent)}
+.controls select{background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:.3em .5em;font-size:.78rem;border-radius:2px;font-family:inherit}
+.controls button,.btn{background:var(--accent);color:var(--bg);border:none;padding:.45em 1em;font-size:.78rem;font-family:'Lucida Console',Monaco,monospace;cursor:pointer;border-radius:2px;letter-spacing:.03em;transition:background .2s}
+.controls button:hover,.btn:hover{background:#6fd4ef}
+.btn-outline{background:transparent;border:1px solid var(--accent);color:var(--accent)}
+.btn-outline:hover{background:var(--accent);color:var(--bg)}
+.controls .val{color:var(--accent);font-family:'Lucida Console',monospace;font-size:.78rem;min-width:2.5em;display:inline-block}
+.tabrow{display:flex;gap:.3em;flex-wrap:wrap}
+.tabrow button{background:var(--bg);border:1px solid var(--border);color:var(--fg-dim)}
+.tabrow button.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+.math{display:block;text-align:center;padding:1.4em 1.2em;margin:1.5em 0;background:var(--bg2);border-left:3px solid var(--accent);font-size:1.1rem;color:var(--fg);overflow-x:auto;border-radius:0 4px 4px 0}
+.math .katex{font-size:1.2em}
+.math-inline .katex{font-size:1.0em}
+
+.timeline{position:relative;padding:1em 0 1em 2em;margin:2em 0}
+.timeline::before{content:'';position:absolute;left:.6em;top:0;bottom:0;width:2px;background:var(--border)}
+.timeline-item{position:relative;margin-bottom:1.8em;padding-left:1.5em}
+.timeline-item::before{content:'';position:absolute;left:-1.95em;top:.4em;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.timeline-year{font-family:'Lucida Console',Monaco,monospace;color:var(--accent);font-size:.85rem;margin-bottom:.2em}
+.timeline-text{font-size:.95rem;color:var(--fg-dim)}
+.timeline-text strong{color:var(--fg)}
+
+blockquote{border-left:3px solid var(--accent5);padding:.8em 1.2em;margin:1.5em 0;color:var(--fg-dim);font-style:italic;background:rgba(232,164,74,.05)}
+blockquote cite{display:block;font-size:.85rem;color:var(--accent5);margin-top:.5em;font-style:normal}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.5em;margin:1.5em 0}
+@media(max-width:700px){.grid-2{grid-template-columns:1fr}}
+
+.references{margin-top:2em;padding:1.5em;background:var(--bg2);border:1px solid var(--border);border-radius:4px}
+.references h3{margin-top:0}
+.references ol{padding-left:1.5em}
+.references li{font-size:.85rem;color:var(--fg-dim);margin-bottom:.5em;line-height:1.5}
+.references li em{color:var(--fg)}
+
+footer{text-align:center;padding:3em 1.5em;color:var(--fg-dim);font-size:.85rem;border-top:1px solid var(--border)}
+footer a{color:var(--accent2)}
+
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-dim)}
+
+.expandable{margin:1.5em 0;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.expandable summary{padding:.8em 1.2em;background:var(--bg3);cursor:pointer;font-size:.9rem;color:var(--accent2);font-family:'Lucida Console',Monaco,monospace;letter-spacing:.03em;list-style:none;display:flex;align-items:center;gap:.5em}
+.expandable summary::before{content:'>';font-size:.7em;transition:transform .2s}
+details[open] summary::before{transform:rotate(90deg)}
+.expandable summary:hover{color:var(--fg)}
+.expandable .inner{padding:1.2em 1.4em;background:rgba(139,123,240,.04)}
+.expandable .inner p:last-child{margin-bottom:0}
+
+.note{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent3);background:rgba(92,232,154,.05)}
+.warn{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent4);background:rgba(232,90,122,.05)}
+.note strong,.warn strong{color:var(--fg)}
+
+table{width:100%;border-collapse:collapse;margin:1.5em 0;font-size:.9rem}
+th,td{padding:.5em .8em;border:1px solid var(--border);text-align:left;vertical-align:top}
+th{background:var(--bg3);color:var(--accent2);font-weight:400;font-family:'Lucida Console',Monaco,monospace;font-size:.76rem;letter-spacing:.03em}
+td{color:var(--fg-dim)}
+td code,p code,li code{font-family:'Lucida Console',Monaco,monospace;font-size:.85em;color:var(--accent3);background:rgba(92,232,154,.07);padding:.05em .3em;border-radius:2px}
+
+.xref{display:flex;flex-wrap:wrap;gap:.6em;margin:1.5em 0}
+.xref a{font-size:.8rem;padding:.5em 1em;border:1px solid var(--border);background:var(--bg3);font-family:'Lucida Console',Monaco,monospace;color:var(--fg-dim);border-bottom:none;border-radius:3px;transition:all .2s}
+.xref a:hover{color:var(--accent);border-color:var(--accent)}
+.xref a .k{display:block;font-size:.62rem;letter-spacing:.12em;color:var(--accent);margin-bottom:.2em}
+
+.pill{display:inline-block;font-family:'Lucida Console',monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:.15em .55em;border-radius:2px;border:1px solid var(--border);color:var(--fg-dim);margin-left:.4em;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<header>
+  <canvas id="heroCanvas"></canvas>
+  <div class="content">
+    <div class="eyebrow">Neural Sound Synthesis &middot; Part 3 of 12</div>
+    <h1>Neural Vocoders &amp; the <em>Adversarial</em> Turn</h1>
+    <p class="subtitle">
+      A mel spectrogram is a beautiful lie: it keeps the magnitudes and throws the phase
+      away. Inverting it back to a waveform is the <em>vocoder</em> problem, and for decades
+      the answer was Griffin&ndash;Lim's slow, phasey iteration. Then GANs learned to guess
+      good phase in a single feed-forward pass — MelGAN, Parallel WaveGAN, and the one that
+      became the default, HiFi-GAN. Three live demos build the story from the ground up.
+    </p>
+    <div class="people">
+      <span>Griffin&ndash;Lim</span><span>MelGAN &middot; Parallel WaveGAN &middot; HiFi-GAN</span>
+      <span>MPD + MSD</span><span>Feature-matching &middot; L<sub>mel</sub></span>
+    </div>
+    <div class="cta">
+      <a href="#problem" class="btn">Begin &#8595;</a>
+      <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/" class="btn btn-outline" target="_blank" rel="noopener">Series hub</a>
+    </div>
+  </div>
+</header>
+
+<nav id="toc">
+  <a href="#problem">1 &middot; The Vocoder Problem</a>
+  <a href="#griffinlim">2 &middot; Griffin&ndash;Lim</a>
+  <a href="#whygan">3 &middot; Why GANs</a>
+  <a href="#lineage">4 &middot; MelGAN &amp; PWG</a>
+  <a href="#generator">5 &middot; HiFi-GAN Generator</a>
+  <a href="#discriminators">6 &middot; MPD + MSD</a>
+  <a href="#losses">7 &middot; The Objective</a>
+  <a href="#beyond">8 &middot; Beyond</a>
+  <a href="#next">Next</a>
+</nav>
+
+<!-- ============================================================ -->
+<section id="problem">
+  <h2><span class="num">1</span>The vocoder problem — invert a spectrogram that threw its phase away</h2>
+  <p class="lead">
+    Modern text-to-speech and singing systems do not predict a waveform. They predict a
+    <strong>mel spectrogram</strong> — a compact time&times;frequency picture of
+    <em>magnitudes</em>. Something must then turn that picture back into 22,050 samples per
+    second of moving air. That something is a <strong>vocoder</strong>, and its job is
+    harder than it looks, because the spectrogram is missing exactly the thing that makes a
+    waveform a waveform: its <em>phase</em>.
+  </p>
+
+  <h3>What the mel spectrogram keeps, and what it discards</h3>
+  <p>
+    The short-time Fourier transform (STFT) slides a window across the signal and takes a
+    DFT of each frame, producing a complex value $S_{t,f}=|S_{t,f}|\,e^{j\angle S_{t,f}}$
+    for every time&ndash;frequency bin. A mel spectrogram keeps only the magnitude
+    $|S_{t,f}|$, warped onto ~80 perceptual mel bands and log-compressed. The phase
+    $\angle S_{t,f}$ — which encodes <em>where</em> each sinusoid sits in time — is thrown
+    on the floor.
+  </p>
+  <div class="math">
+    $$S_{t,f} = \sum_{n} x[n]\,w[n-tH]\,e^{-j 2\pi f n / N}, \qquad \text{mel keeps only } |S_{t,f}|.$$
+  </div>
+  <p>
+    Reconstruction must therefore <em>invent</em> a phase field that is (a) consistent with
+    the kept magnitudes and (b) consistent with itself across overlapping frames — because
+    the same sample is covered by several windows, and they must agree. That second
+    constraint is what makes the problem non-trivial: an arbitrary phase gives a spectrogram
+    whose overlapping frames contradict each other, and the ear hears the contradiction as a
+    metallic, watery, "phasey" buzz.
+  </p>
+
+  <div class="note">
+    <strong>Why work in mel at all, then?</strong> Because it is roughly $256\times$ smaller
+    than the waveform and perceptually smooth, so the acoustic model (Part 4) that maps text
+    to it has a far easier target. The field's bargain is a two-stage pipeline: a slow, easy
+    acoustic model plus a fast, hard vocoder. This part is about making that second stage
+    fast <em>and</em> faithful.
+  </div>
+
+  <details class="expandable"><summary>derivation · why magnitude-only is missing "half" the information</summary>
+    <div class="inner">
+      <p>A length-$N$ real frame has $N$ real degrees of freedom. Its DFT has $N/2{+}1$
+      complex bins, i.e. $N{+}2$ real numbers, but conjugate symmetry and the real DC and
+      Nyquist bins remove the redundancy back down to $N$. Splitting into magnitude and
+      phase,</p>
+      <div class="math">$$\underbrace{|S_f|}_{N/2+1\text{ reals}} \;\cup\; \underbrace{\angle S_f}_{N/2-1\text{ reals}} = N \text{ reals}.$$</div>
+      <p>Keeping magnitude alone discards the ~$N/2$ phase reals — very nearly half the
+      frame's information. What rescues inversion is <em>overlap</em>: with hop $H \ll N$
+      each sample sits under many windows, so the magnitudes are massively redundant across
+      frames. That redundancy is a set of consistency equations the true phase satisfies —
+      and which Griffin&ndash;Lim, and later a neural network, exploit to solve for a
+      plausible phase.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="griffinlim">
+  <h2><span class="num">2</span>Griffin&ndash;Lim — the classical answer, and why it is not enough</h2>
+  <p class="lead">
+    Before neural vocoders, phase was recovered by iteration. Griffin &amp; Lim (1984) start
+    from <em>random</em> phase, run an inverse STFT to get a candidate waveform, take its
+    STFT, throw away the phase they just produced but <strong>keep</strong> the true target
+    magnitude, and repeat. Each round the overlapping frames agree a little more. It works —
+    slowly, and never perfectly.
+  </p>
+  <div class="math">
+    $$x^{(i+1)} = \operatorname{ISTFT}\!\Big(\, |S|\;\odot\;\exp\!\big(j\,\angle\,\operatorname{STFT}(x^{(i)})\big)\Big)$$
+  </div>
+  <p>
+    The update is an alternating projection: onto the set of signals with the correct
+    magnitude, then onto the set of <em>consistent</em> STFTs (those that are the STFT of an
+    actual time signal). It provably never increases the spectral inconsistency, but it
+    converges to a local minimum whose invented phase is only <em>plausible</em>, not
+    correct — and audibly so at low iteration counts.
+  </p>
+
+  <div class="viz">
+    <canvas id="glViz" height="340" aria-label="Griffin-Lim reconstruction versus the original waveform, with spectrogram and error"></canvas>
+    <div class="controls">
+      <label>iterations <input type="range" id="glIter" min="1" max="50" step="1" value="6"><span class="val" id="glIterV">6</span></label>
+      <button id="glOrig">▶ Original</button>
+      <button id="glRecon" class="btn-outline">▶ Griffin&ndash;Lim</button>
+    </div>
+    <div class="viz-caption" id="glCap">A sung vowel is generated in-browser, its magnitude STFT computed, then phase is rebuilt from random by real Griffin&ndash;Lim iteration. Few iterations = phasey; many = clean.</div>
+  </div>
+  <p class="note">
+    <strong>Try this:</strong> set <em>1&ndash;3 iterations</em> and press
+    <em>Griffin&ndash;Lim</em> — the vowel is recognisable but robotic and buzzy, the invented
+    phase fighting itself across frames. Push to <em>40&ndash;50</em> and it cleans up, but
+    every one of those iterations is a full ISTFT+STFT pass. A neural vocoder learns to jump
+    straight to good phase in <em>one</em> feed-forward pass — no iteration at all.
+  </p>
+
+  <h3>The three limits that motivated everything after</h3>
+  <ul>
+    <li><strong>Slow.</strong> Dozens of STFT/ISTFT round-trips per clip; unusable for
+      real-time synthesis.</li>
+    <li><strong>Only <em>plausible</em> phase.</strong> It minimises spectral inconsistency,
+      not perceptual quality — the result is intelligible but characteristically artificial.</li>
+    <li><strong>Magnitude must be exact.</strong> It assumes the target magnitude is the true
+      STFT magnitude. A predicted mel is lossy and mel-warped, so inverting it back to a
+      linear STFT (a pseudo-inverse of the mel filterbank) adds error <em>before</em>
+      Griffin&ndash;Lim even starts.</li>
+  </ul>
+
+  <details class="expandable"><summary>derivation · Griffin&ndash;Lim as alternating projection &amp; the consistency measure</summary>
+    <div class="inner">
+      <p>Let $\mathcal{A}$ be the set of complex STFTs with the target magnitude $|S|$, and
+      $\mathcal{C}$ the set of <em>consistent</em> STFTs — those equal to
+      $\operatorname{STFT}(\operatorname{ISTFT}(\cdot))$ for some time signal. Griffin&ndash;Lim
+      alternately projects onto each:</p>
+      <div class="math">$$\hat S^{(i+1)} = P_{\mathcal{A}}\big(P_{\mathcal{C}}(\hat S^{(i)})\big),$$</div>
+      <p>where $P_{\mathcal{C}}$ is exactly the ISTFT-then-STFT round trip and $P_{\mathcal{A}}$
+      replaces each magnitude with the target while keeping the phase. The quantity it
+      monotonically decreases is the <em>spectral inconsistency</em></p>
+      <div class="math">$$\mathcal{I}(\hat S) = \big\lVert \hat S - \operatorname{STFT}(\operatorname{ISTFT}(\hat S)) \big\rVert^2,$$</div>
+      <p>and the demo's error meter reports the closely related spectral convergence
+      $\lVert\,|\operatorname{STFT}(x^{(i)})| - |S|\,\rVert / \lVert |S| \rVert$. Because
+      both projections are non-expansive but $\mathcal{A}$ is non-convex (a magnitude
+      constraint), convergence is only to a local optimum — the reason the invented phase is
+      plausible rather than true.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="whygan">
+  <h2><span class="num">3</span>Why GANs — trade likelihood for a single fast pass</h2>
+  <p class="lead">
+    Autoregressive vocoders like WaveNet (Part 2) invert a mel with superb quality but emit
+    one sample at a time — thousands of sequential passes per second. The generative
+    adversarial network offers the opposite bargain: a <em>convolutional</em> generator maps
+    the whole mel to the whole waveform in one parallel forward pass, and a
+    <strong>discriminator</strong> — trained to tell real audio from generated — supplies the
+    only "loss" rich enough to police fine waveform detail.
+  </p>
+  <div class="math">
+    $$\min_G \max_D \; \mathbb{E}_{x}\big[\log D(x)\big] + \mathbb{E}_{s}\big[\log\!\big(1 - D(G(s))\big)\big],\qquad s=\text{mel},\; x=\text{waveform}$$
+  </div>
+  <p>
+    Why does the discriminator matter so much? Because a plain regression loss — mean-squared
+    error between predicted and true samples — is <em>blind to phase in exactly the wrong
+    way</em>. Two waveforms can sound identical yet differ sample-by-sample (a shifted pitch
+    pulse), so MSE punishes correct-sounding audio and rewards the blurry, over-smoothed
+    average of all valid phases: a muffled buzz. The discriminator instead learns a
+    <em>perceptual</em> notion of "realness" that tolerates phase shifts but flags the
+    metallic textures Griffin&ndash;Lim leaves behind.
+  </p>
+
+  <div class="grid-2">
+    <div class="note"><strong>The prize.</strong> HiFi-GAN synthesises 22&nbsp;kHz audio
+      hundreds of times faster than real time on a GPU — and faster than real time on a
+      single CPU thread — at quality rivalling autoregressive WaveNet. Feed-forward, no
+      iteration, no per-sample loop.</div>
+    <div class="warn"><strong>The peril.</strong> GANs have no likelihood and can
+      <em>mode-collapse</em> or hallucinate artefacts a regression model never would. The
+      entire craft below — feature matching, mel loss, multiple discriminators — exists to
+      tame that instability without giving up the speed.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="lineage">
+  <h2><span class="num">4</span>MelGAN &amp; Parallel WaveGAN — making GAN vocoders actually work</h2>
+  <p class="lead">
+    The first GAN vocoders that held together arrived in 2019. Two ideas from them survive in
+    every model since: <strong>feature-matching</strong> (MelGAN) and a
+    <strong>multi-resolution STFT loss</strong> (Parallel WaveGAN). Both are ways to give the
+    generator a stable, informative signal that raw adversarial loss alone cannot.
+  </p>
+
+  <h3>MelGAN — window-based discriminators + feature matching</h3>
+  <p>
+    MelGAN's generator is a stack of transposed convolutions with residual blocks — fully
+    feed-forward, non-autoregressive. Its key contributions are on the <em>discriminator</em>
+    and <em>loss</em> side. It uses several identical discriminators operating on the raw
+    waveform at different downsampling rates (a <em>multi-scale</em> critic), and it adds a
+    <strong>feature-matching loss</strong>: match the discriminator's intermediate feature
+    maps for real and generated audio, not just its final real/fake verdict.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{FM}}(G;D) = \mathbb{E}_{x,s}\left[\sum_{i=1}^{T}\frac{1}{N_i}\big\lVert D^{(i)}(x) - D^{(i)}(G(s))\big\rVert_1\right]$$
+  </div>
+  <p>
+    Here $D^{(i)}$ is the $i$-th of $T$ layers and $N_i$ its element count. This is a
+    <em>learned perceptual loss</em>: the discriminator's own hierarchy of features becomes a
+    yardstick for similarity, far more informative than a single scalar and far more stable
+    than pure adversarial gradient. It is the single most important trick for keeping GAN
+    vocoder training from diverging.
+  </p>
+
+  <h3>Parallel WaveGAN — non-autoregressive, multi-resolution STFT loss</h3>
+  <p>
+    Parallel WaveGAN (PWG) pairs a small WaveNet-style generator (dilated convs,
+    non-autoregressive, conditioned on the mel and driven by noise) with a
+    <strong>multi-resolution STFT loss</strong>: compute STFT losses at several
+    window/hop/FFT settings and average them, so the model is supervised on both fine time
+    resolution (short windows) and fine frequency resolution (long windows) at once.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{aux}} = \frac{1}{M}\sum_{m=1}^{M}\Big(\underbrace{\tfrac{\lVert |S_m| - |\hat S_m| \rVert_F}{\lVert |S_m| \rVert_F}}_{\text{spectral convergence}} + \underbrace{\tfrac{1}{K}\big\lVert \log|S_m| - \log|\hat S_m|\big\rVert_1}_{\text{log-magnitude}}\Big)$$
+  </div>
+  <p>
+    The two terms are complementary: spectral convergence emphasises large spectral peaks
+    (formants, harmonics), while the log-magnitude term emphasises the quiet valleys the ear
+    still hears. Averaging over $M$ resolutions prevents the model from over-fitting artefacts
+    tuned to any single STFT grid — a direct antidote to the single-grid brittleness that
+    plagues Griffin&ndash;Lim.
+  </p>
+
+  <table>
+    <thead><tr><th>Model</th><th>Generator</th><th>Discriminator</th><th>Signature loss</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--accent)">MelGAN</strong> (2019)</td>
+        <td>Transposed-conv + residual stacks, feed-forward</td>
+        <td>Multi-scale on raw / ×2 / ×4 audio</td>
+        <td>Adversarial + feature matching</td></tr>
+      <tr><td><strong style="color:var(--accent2)">Parallel WaveGAN</strong> (2019)</td>
+        <td>Non-AR dilated WaveNet, noise + mel input</td>
+        <td>Single waveform critic</td>
+        <td>Adversarial + multi-resolution STFT</td></tr>
+      <tr><td><strong style="color:var(--accent3)">HiFi-GAN</strong> (2020)</td>
+        <td>Transposed-conv upsampling + MRF blocks</td>
+        <td>MPD (primes) + MSD (pooled)</td>
+        <td>Adversarial (LSGAN) + FM + L<sub>mel</sub></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section id="generator">
+  <h2><span class="num">5</span>The HiFi-GAN generator — transposed-conv upsampling + multi-receptive-field fusion</h2>
+  <p class="lead">
+    HiFi-GAN (Kong et&nbsp;al., 2020) became the default neural vocoder, and its generator is
+    a model of clarity. It takes an 80-band mel at frame rate and <strong>upsamples</strong> it
+    stage by stage — each stage a transposed 1-D convolution — until the time axis reaches the
+    waveform sample rate. After every upsample it applies a <strong>multi-receptive-field
+    fusion (MRF)</strong> block: several residual blocks with different kernel sizes and
+    dilations, summed, so the network sees many temporal scales at once.
+  </p>
+
+  <div class="viz">
+    <canvas id="genViz" height="360" aria-label="Interactive schematic of the HiFi-GAN generator: upsampling stages and MRF blocks"></canvas>
+    <div class="viz-caption" id="genCap">Hover a stage to read what it does. Mel frames (80×T) are upsampled ×8·8·2·2 = 256 to waveform rate, each stage followed by an MRF block fusing three dilated residual paths.</div>
+  </div>
+  <p>
+    The upsampling factors $[8,8,2,2]$ multiply to $256$ — precisely the STFT hop, so a mel at
+    ~86 frames/s becomes audio at $86\times256 \approx 22{,}050$ samples/s. Transposed
+    convolution is learnable upsampling: it inserts zeros and convolves, letting the network
+    <em>synthesise</em> the fine structure between mel frames rather than merely interpolate.
+    But transposed convs alone cause the notorious "checkerboard" artefacts and see only a
+    narrow context — which is what the MRF fixes.
+  </p>
+
+  <h3>Multi-receptive-field fusion (MRF)</h3>
+  <p>
+    An MRF block runs $|k_r|$ residual blocks in parallel — in HiFi-GAN V1 with kernel sizes
+    $\{3,7,11\}$ and dilations $\{1,3,5\}$ — and <em>sums</em> their outputs. A short kernel
+    captures pitch-period detail; a long, dilated kernel captures formant-scale envelope. Their
+    sum lets one stage attend to fine and coarse structure simultaneously, which is exactly
+    what a waveform demands (recall Part 1's long-range-dependency problem).
+  </p>
+  <div class="math">
+    $$\text{MRF}(x) = \sum_{r} \text{ResBlock}_{k_r,\,D_r}(x),\qquad k_r \in \{3,7,11\},\; D_r \in \{[1,3,5],\dots\}$$
+  </div>
+  <div class="note">
+    <strong>Design knob.</strong> V1 (large) maximises quality; V2/V3 shrink channel counts
+    and MRF widths for speed. The architecture degrades gracefully — the same block structure,
+    fewer parameters — which is why HiFi-GAN spans from server-grade fidelity to on-device
+    real-time from one design.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="discriminators">
+  <h2><span class="num">6</span>The discriminators — periods the 1-D critic cannot see</h2>
+  <p class="lead">
+    A generator is only as good as the critic that trains it. HiFi-GAN's decisive idea is a
+    pair of discriminator <em>ensembles</em>. The <strong>Multi-Period Discriminator (MPD)</strong>
+    reshapes the 1-D waveform into 2-D grids indexed by several <em>prime</em> periods, exposing
+    periodic structure a flat 1-D convolution smears over. The <strong>Multi-Scale Discriminator
+    (MSD)</strong> looks at the raw, ×2- and ×4-pooled waveform to police longer-range, smoother
+    consistency.
+  </p>
+
+  <h3>The MPD reshape — why prime periods</h3>
+  <p>
+    Speech and singing are <em>quasi-periodic</em>: a pitch period repeats every few
+    milliseconds. A 1-D convolution with a modest kernel cannot span a whole period, so
+    period-length artefacts (a subtly wrong pitch pulse, a buzzy sub-harmonic) slip past it. The
+    MPD's trick: take the length-$T$ signal and fold it into a 2-D array of width $p$, so every
+    <em>column</em> collects samples one period apart. When $p$ matches the signal's period, each
+    column lines up in phase and vertical structure snaps into view — and a 2-D convolution can
+    now catch it. Drag the reshape period below.
+  </p>
+
+  <div class="viz">
+    <canvas id="mpdViz" height="300" aria-label="Multi-Period Discriminator reshape: folding a 1-D signal into a 2-D grid by period"></canvas>
+    <div class="controls">
+      <label>signal period P&#8320;
+        <select id="mpdP0"><option value="5">5</option><option value="7" selected>7</option><option value="10">10</option><option value="11">11</option></select>
+      </label>
+      <label>reshape p
+        <select id="mpdP"><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="7" selected>7</option><option value="11">11</option></select>
+      </label>
+    </div>
+    <div class="viz-caption" id="mpdCap">Top: a quasi-periodic 1-D signal. Bottom: it folded into rows of width p. Set p = P₀ and the columns align into clean vertical bands — that is what the 2-D discriminator sees.</div>
+  </div>
+  <p class="note">
+    <strong>Try this:</strong> leave the signal period at <em>7</em> and step the reshape
+    <em>p</em> through 2, 3, 5, 7, 11. Only at <em>p = 7</em> do the columns become coherent
+    vertical stripes (the alignment meter spikes). Since you never know an artefact's period in
+    advance, HiFi-GAN runs several sub-discriminators at periods $\{2,3,5,7,11\}$ — coprime, so
+    together they cover a wide range of period lengths with minimal overlap.
+  </p>
+
+  <h3>The MSD — smoothed, downsampled views</h3>
+  <p>
+    The MPD sees fine periodic detail but each of its sub-discriminators only touches
+    <em>disjoint</em> samples (every $p$-th one). The Multi-Scale Discriminator complements it by
+    operating on <em>contiguous</em> audio at three scales — raw, ×2-pooled, ×4-pooled — the same
+    multi-scale idea MelGAN introduced. Coarser scales judge long-range envelope and rhythm; the
+    raw scale judges high-frequency crispness. Together, MPD + MSD leave few places for an
+    artefact to hide.
+  </p>
+
+  <details class="expandable"><summary>derivation · what the MPD reshape does to a periodic component</summary>
+    <div class="inner">
+      <p>Write the 1-D signal as $x[n]$ and reshape it row-major into a 2-D array
+      $X[r,c] = x[r p + c]$ of width $p$. Column $c$ therefore samples
+      $x[c], x[c+p], x[c+2p], \dots$ — points spaced exactly $p$ apart. If $x$ has period
+      $P_0$ and $p = P_0$, then $x[rP_0 + c] = x[c]$ for all $r$: <em>every row is identical</em>
+      and each column is constant, so the array is pure vertical stripes. A 2-D convolution over
+      $X$ then trivially detects the periodicity as a horizontal-invariance pattern.</p>
+      <p>If instead $\gcd(p, P_0) = g < p$, column $c$ cycles through $P_0/g$ distinct phase
+      values and the vertical coherence is partial or absent. This is precisely why the chosen
+      periods are <em>prime</em>: distinct primes share no common factor, so their reshapes probe
+      genuinely different periodicities and a periodic artefact of almost any length trips at
+      least one of them.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="losses">
+  <h2><span class="num">7</span>The objective — three losses in one balance</h2>
+  <p class="lead">
+    HiFi-GAN's training loss is a weighted sum of three ingredients, applied against every
+    sub-discriminator $D_k$ in $\{$MPD periods$\} \cup \{$MSD scales$\}$. Each term does a
+    distinct job; drop any one and quality or stability suffers.
+  </p>
+
+  <h4>1 · Adversarial loss (least-squares GAN)</h4>
+  <p>
+    HiFi-GAN uses the <strong>LSGAN</strong> form — squared error to the labels $1$ (real) and
+    $0$ (fake) — which gives smoother, non-saturating gradients than the original log-loss and
+    is far more stable for audio.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{adv}}(D_k)=\mathbb{E}_{x,s}\big[(D_k(x)-1)^2 + D_k(G(s))^2\big],\qquad
+      \mathcal{L}_{\text{adv}}(G;D_k)=\mathbb{E}_{s}\big[(D_k(G(s))-1)^2\big]$$
+  </div>
+
+  <h4>2 · Feature-matching loss</h4>
+  <p>
+    The MelGAN idea, applied to every sub-discriminator: match intermediate feature maps of real
+    and generated audio. This is the perceptual backbone that keeps training on the rails.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{FM}}(G;D_k)=\mathbb{E}_{x,s}\left[\sum_{i=1}^{T}\frac{1}{N_i}\big\lVert D_k^{(i)}(x)-D_k^{(i)}(G(s))\big\rVert_1\right]$$
+  </div>
+
+  <h4>3 · Mel-spectrogram reconstruction loss</h4>
+  <p>
+    An $\ell_1$ distance between the mel of the generated waveform and the target mel. It anchors
+    the generator to the <em>correct content</em> — the right words, pitch, and timbre — while the
+    adversarial and FM terms handle realism. It also sharply accelerates early training.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{mel}}(G)=\mathbb{E}_{x,s}\big[\lVert \phi(x)-\phi(G(s))\rVert_1\big],\qquad \phi=\text{mel-spectrogram operator}$$
+  </div>
+
+  <h4>The full objective</h4>
+  <p>
+    Sum the adversarial and feature-matching terms over all $K$ sub-discriminators, add the mel
+    loss with its large weight, and you have HiFi-GAN's generator and discriminator objectives:
+  </p>
+  <div class="math">
+    $$\mathcal{L}_G = \sum_{k=1}^{K}\Big[\mathcal{L}_{\text{adv}}(G;D_k) + \lambda_{\text{fm}}\,\mathcal{L}_{\text{FM}}(G;D_k)\Big] + \lambda_{\text{mel}}\,\mathcal{L}_{\text{mel}}(G),
+      \qquad \mathcal{L}_D = \sum_{k=1}^{K}\mathcal{L}_{\text{adv}}(D_k)$$
+  </div>
+  <p>
+    with $\lambda_{\text{fm}} = 2$ and $\lambda_{\text{mel}} = 45$. That lopsided weighting is
+    telling: the mel loss dominates numerically, pinning down <em>what</em> to say, while the
+    adversarial and feature-matching terms — small in magnitude but rich in gradient — decide
+    <em>how real it sounds</em>. The GAN supplies the phase and micro-texture that no
+    reconstruction loss can, at the speed no autoregressive model can match.
+  </p>
+
+  <blockquote>
+    Read the whole architecture as a division of labour: the mel loss says the words, the
+    feature-matching loss says them cleanly, and the discriminators — periodic and multi-scale —
+    make sure they sound like a person and not like Griffin&ndash;Lim.
+  </blockquote>
+</section>
+
+<!-- ============================================================ -->
+<section id="beyond">
+  <h2><span class="num">8</span>Beyond HiFi-GAN &amp; a five-year timeline</h2>
+  <p class="lead">
+    HiFi-GAN's template — feed-forward upsampling generator, ensemble of discriminators,
+    three-term loss — proved so durable that later work mostly refined the generator's inductive
+    bias rather than replacing the recipe.
+  </p>
+  <p>
+    <strong>UnivNet</strong> added a multi-resolution spectrogram discriminator for broadband
+    fidelity. <strong>BigVGAN</strong> (2022) scaled the generator up and, crucially, replaced
+    plain activations with a periodic <em>Snake</em> activation plus anti-aliased up/down-sampling,
+    giving a genuinely <em>universal</em> vocoder that generalises across unseen speakers,
+    languages, and even non-speech audio from a single model — the current strong baseline. The
+    through-line is inductive bias: bake periodicity and anti-aliasing into the generator so the
+    adversarial loss has less to fix.
+  </p>
+
+  <div class="timeline">
+    <div class="timeline-item"><div class="timeline-year">2019</div><div class="timeline-text"><strong>MelGAN</strong> — feed-forward GAN vocoder with multi-scale discriminators and the feature-matching loss. <strong>GAN-TTS</strong> and <strong>Parallel WaveGAN</strong> land the same year, PWG adding the multi-resolution STFT loss. <span class="pill">GAN vocoders arrive</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2020</div><div class="timeline-text"><strong>HiFi-GAN</strong> sets the standard: transposed-conv + MRF generator, MPD (prime periods) + MSD, LSGAN + FM + L<sub>mel</sub>. Becomes the default vocoder across the field. <span class="pill">The standard</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2021</div><div class="timeline-text"><strong>UnivNet</strong> and <strong>Fre-GAN</strong> push spectral discriminators and multi-resolution critics for broadband quality. <span class="pill">Refinement</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2022</div><div class="timeline-text"><strong>BigVGAN</strong> — Snake activation, anti-aliased sampling, and scale deliver a universal vocoder that generalises far beyond its training distribution. <span class="pill">Universal</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2020+</div><div class="timeline-text">In parallel, <strong>diffusion vocoders</strong> — DiffWave, WaveGrad — trade single-pass speed for iterative denoising and their own quality frontier. <span class="pill">Part 8</span></div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="next">
+  <h2><span class="num">→</span>Where to go next</h2>
+  <p>
+    You now have the fast half of the two-stage pipeline: how a magnitude-only mel becomes a
+    waveform in one adversarial forward pass, why Griffin&ndash;Lim was not enough, and how
+    HiFi-GAN's generator, discriminators, and losses fit together. The obvious question is where
+    those mels come from — the acoustic model of Part 4 — and the alternative inversion route of
+    Part 8's diffusion vocoders. And it all stands against Part 2's autoregressive vocoders, the
+    slow, high-fidelity baseline this whole part was built to out-run.
+  </p>
+  <div class="xref">
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/"><span class="k">Series hub</span>All twelve parts &middot; the interactive map</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_02_Autoregressive_Waveform/"><span class="k">Part 2 ←</span>Autoregressive Waveform Models</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_04_End_to_End_TTS/"><span class="k">Part 4 →</span>End-to-End TTS &amp; Acoustic Models</a>
+  </div>
+  <div class="references">
+    <h3>References</h3>
+    <ol>
+      <li>Griffin, D. &amp; Lim, J. (1984). <em>Signal Estimation from Modified Short-Time Fourier Transform.</em> IEEE Trans. ASSP, 32(2).</li>
+      <li>Kumar, K. et&nbsp;al. (2019). <em>MelGAN: Generative Adversarial Networks for Conditional Waveform Synthesis.</em> NeurIPS.</li>
+      <li>Yamamoto, R., Song, E., Kim, J.-M. (2020). <em>Parallel WaveGAN: A Fast Waveform Generation Model Based on GAN with Multi-Resolution Spectrogram.</em> ICASSP.</li>
+      <li>Kong, J., Kim, J., Bae, J. (2020). <em>HiFi-GAN: Generative Adversarial Networks for Efficient and High Fidelity Speech Synthesis.</em> NeurIPS.</li>
+      <li>Mao, X. et&nbsp;al. (2017). <em>Least Squares Generative Adversarial Networks.</em> ICCV.</li>
+      <li>Jang, W. et&nbsp;al. (2021). <em>UnivNet: A Neural Vocoder with Multi-Resolution Spectrogram Discriminators.</em> Interspeech.</li>
+      <li>Lee, S. et&nbsp;al. (2022). <em>BigVGAN: A Universal Neural Vocoder with Large-Scale Training.</em> arXiv:2206.04658.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <p>
+    Neural Sound Synthesis &middot; Part 3 — Neural Vocoders (GAN)<br>
+    Part of the <a href="https://github.com/BrendanJamesLynskey/DSP_and_Music" target="_blank" rel="noopener">DSP &amp; Music</a> collection &middot;
+    single-file HTML/CSS/JS &middot; Web Audio API &middot; KaTeX &middot; no dependencies.
+  </p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+// ── utilities ─────────────────────────────────────────────────
+const DPR=window.devicePixelRatio||1;
+function setupCanvas(c,w,h){ c.width=Math.round(w*DPR); c.height=Math.round(h*DPR); c.style.height=h+'px'; const x=c.getContext('2d'); x.setTransform(DPR,0,0,DPR,0,0); return x; }
+function fitWidth(c){ const r=c.parentElement.getBoundingClientRect(); return Math.max(320,Math.floor(r.width)); }
+let audioCtx=null;
+function actx(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+function play(samples,sr){ const a=actx(); const b=a.createBuffer(1,samples.length,sr); b.getChannelData(0).set(samples); const s=a.createBufferSource(); s.buffer=b; const g=a.createGain(); g.gain.value=0.9; s.connect(g); g.connect(a.destination); s.start(); return s; }
+function fade(buf,n){ const N=buf.length,k=Math.min(n,N>>1); for(let i=0;i<k;i++){ buf[i]*=i/k; buf[N-1-i]*=i/k; } return buf; }
+
+// ── shared DSP for the Griffin–Lim demo ───────────────────────
+const GSR=16000, FRAME=256, HOP=128, HALF=FRAME/2+1;
+function hann(N){ const w=new Float32Array(N); for(let i=0;i<N;i++) w[i]=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); return w; }
+const WIN=hann(FRAME);
+
+// generate a ~0.5 s sung vowel from formant-weighted harmonics
+function genVowel(dur){
+  const N=Math.floor(GSR*dur); const x=new Float32Array(N);
+  const f0=150;
+  const formants=[[730,1.0,80],[1090,0.5,90],[2440,0.30,120],[3400,0.15,150]];
+  for(let n=0;n<N;n++){
+    const t=n/GSR; let s=0;
+    for(let h=1;h<=40;h++){
+      const f=f0*h; if(f>GSR/2) break;
+      let amp=1/h, fw=0;
+      for(const[fc,g,bw] of formants) fw+=g/(1+Math.pow((f-fc)/bw,2));
+      amp*=fw;
+      s+=amp*Math.sin(2*Math.PI*f*t + 0.3*Math.sin(2*Math.PI*5.5*t));
+    }
+    x[n]=s;
+  }
+  let m=0; for(let n=0;n<N;n++) m=Math.max(m,Math.abs(x[n])); if(m>0) for(let n=0;n<N;n++) x[n]/=m*1.05;
+  return fade(x,300);
+}
+// framed magnitude/complex STFT (naive DFT to N/2+1 bins)
+function stft(x){
+  const nF=Math.max(1,Math.floor((x.length-FRAME)/HOP)+1);
+  const re=[], im=[];
+  for(let f=0;f<nF;f++){
+    const off=f*HOP; const fr=new Float32Array(HALF), fi=new Float32Array(HALF);
+    for(let k=0;k<HALF;k++){
+      let r=0,i=0; const w=2*Math.PI*k/FRAME;
+      for(let n=0;n<FRAME;n++){ const s=x[off+n]*WIN[n]; r+=s*Math.cos(w*n); i-=s*Math.sin(w*n); }
+      fr[k]=r; fi[k]=i;
+    }
+    re.push(fr); im.push(fi);
+  }
+  return {re,im,nF};
+}
+function magOf(S){ return S.re.map((fr,f)=>{ const m=new Float32Array(HALF); for(let k=0;k<HALF;k++) m[k]=Math.hypot(fr[k],S.im[f][k]); return m; }); }
+// inverse STFT with overlap-add + window-power normalisation
+function istft(re,im,length){
+  const out=new Float32Array(length), wsum=new Float32Array(length);
+  for(let f=0;f<re.length;f++){
+    const off=f*HOP; const FR=new Float32Array(FRAME), FI=new Float32Array(FRAME);
+    for(let k=0;k<HALF;k++){ FR[k]=re[f][k]; FI[k]=im[f][k]; }
+    for(let k=HALF;k<FRAME;k++){ FR[k]=re[f][FRAME-k]; FI[k]=-im[f][FRAME-k]; }
+    for(let n=0;n<FRAME;n++){
+      let s=0; const w=2*Math.PI*n/FRAME;
+      for(let k=0;k<FRAME;k++){ s+=FR[k]*Math.cos(w*k)-FI[k]*Math.sin(w*k); }
+      s/=FRAME;
+      const idx=off+n; if(idx<length){ out[idx]+=s*WIN[n]; wsum[idx]+=WIN[n]*WIN[n]; }
+    }
+  }
+  for(let i=0;i<length;i++){ if(wsum[i]>1e-8) out[i]/=wsum[i]; }
+  return out;
+}
+// real Griffin–Lim: random phase, then alternate ISTFT→STFT re-imposing |S|
+function griffinLim(mag,iters,length){
+  let re=mag.map(fr=>{ const r=new Float32Array(HALF); return r; });
+  let im=mag.map(fr=>{ const r=new Float32Array(HALF); return r; });
+  for(let f=0;f<mag.length;f++) for(let k=0;k<HALF;k++){ const ph=Math.random()*2*Math.PI; re[f][k]=mag[f][k]*Math.cos(ph); im[f][k]=mag[f][k]*Math.sin(ph); }
+  let x=istft(re,im,length);
+  for(let it=0;it<iters;it++){
+    const S=stft(x);
+    for(let f=0;f<S.nF && f<mag.length;f++) for(let k=0;k<HALF;k++){
+      const p=Math.atan2(S.im[f][k],S.re[f][k]);
+      re[f][k]=mag[f][k]*Math.cos(p); im[f][k]=mag[f][k]*Math.sin(p);
+    }
+    x=istft(re,im,length);
+  }
+  return x;
+}
+function normPeak(x,peak){ let m=0; for(let i=0;i<x.length;i++) m=Math.max(m,Math.abs(x[i])); if(m>0){ const g=peak/m; for(let i=0;i<x.length;i++) x[i]*=g; } return x; }
+
+// ── DEMO 1: Griffin–Lim vs original ───────────────────────────
+(function griffinLimDemo(){
+  const c=document.getElementById('glViz'); if(!c) return;
+  const cap=document.getElementById('glCap'), H=340;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const iterEl=document.getElementById('glIter'), iterV=document.getElementById('glIterV');
+  const clip=genVowel(0.5);
+  const S0=stft(clip); const MAG=magOf(S0);
+  // display spectrogram (log, normalised)
+  const disp=MAG.map(fr=>{ const d=new Float32Array(HALF); for(let k=0;k<HALF;k++) d[k]=Math.log10(1+fr[k]*8); return d; });
+  let dmx=1e-9; for(const fr of disp) for(const v of fr) dmx=Math.max(dmx,v);
+  for(const fr of disp) for(let k=0;k<HALF;k++) fr[k]/=dmx;
+  let glResult=null, glErr=0, glIters=-1;
+  function specColor(v){ const a=Math.max(0,Math.min(1,v)); const r=Math.round(20+a*a*160+a*40); const g=Math.round(20+a*70); const b=Math.round(45+a*150); return `rgb(${r},${g},${b})`; }
+  function computeGL(){
+    const iters=+iterEl.value;
+    const rec=griffinLim(MAG,iters,clip.length);
+    const Sr=stft(rec); const Mr=magOf(Sr);
+    let num=0,den=0;
+    for(let f=0;f<Mr.length && f<MAG.length;f++) for(let k=0;k<HALF;k++){ const d=Mr[f][k]-MAG[f][k]; num+=d*d; den+=MAG[f][k]*MAG[f][k]; }
+    glErr=Math.sqrt(num/(den+1e-12));
+    glResult=normPeak(rec,0.9); glIters=iters;
+    draw();
+  }
+  function draw(){
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const padX=16, plotW=W-2*padX;
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    // spectrogram (top)
+    const sTop=22, sH=138;
+    ctx.fillText('TARGET MAGNITUDE SPECTROGRAM — '+disp.length+' frames × '+HALF+' bins', padX, 14);
+    const cw=plotW/disp.length, ch=sH/HALF;
+    for(let f=0;f<disp.length;f++) for(let k=0;k<HALF;k++){ ctx.fillStyle=specColor(disp[f][k]); ctx.fillRect(padX+f*cw, sTop+(HALF-1-k)*ch, cw+1, ch+1); }
+    ctx.fillStyle='#8a8d9a'; ctx.fillText('freq ↑', padX+2, sTop+10);
+    // waveforms (bottom)
+    const wTop=sTop+sH+34, wH=96, mid=wTop+wH/2;
+    ctx.fillText('ORIGINAL (grey)  vs  GRIFFIN–LIM RECONSTRUCTION (pink)', padX, wTop-8);
+    ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(padX,mid); ctx.lineTo(padX+plotW,mid); ctx.stroke();
+    const step=Math.max(1,Math.floor(clip.length/plotW));
+    ctx.strokeStyle='rgba(212,214,224,0.35)'; ctx.lineWidth=1; ctx.beginPath();
+    for(let px=0;px<plotW;px++){ const v=clip[px*step]||0; const y=mid-v*wH*0.45; if(px===0)ctx.moveTo(padX+px,y);else ctx.lineTo(padX+px,y);} ctx.stroke();
+    if(glResult){
+      ctx.strokeStyle='#e85a7a'; ctx.lineWidth=1.1; ctx.beginPath();
+      for(let px=0;px<plotW;px++){ const v=glResult[px*step]||0; const y=mid-v*wH*0.45; if(px===0)ctx.moveTo(padX+px,y);else ctx.lineTo(padX+px,y);} ctx.stroke();
+    }
+    // error meter
+    const barY=H-16, barX=padX, barW=Math.min(220,plotW*0.5);
+    ctx.fillStyle='#8a8d9a'; ctx.fillText('spectral convergence error', barX, barY-6);
+    ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.strokeRect(barX,barY-2,barW,8);
+    const frac=Math.max(0,Math.min(1,glErr/0.6));
+    ctx.fillStyle='#e8a44a'; ctx.fillRect(barX,barY-2,barW*frac,8);
+    ctx.fillStyle='#4ac7e8'; ctx.textAlign='right'; ctx.fillText('err = '+glErr.toFixed(3)+'   ·   '+glIters+' iters', padX+plotW, barY-6); ctx.textAlign='left';
+  }
+  const clearTimeoutRef={id:null};
+  iterEl.addEventListener('input',()=>{ iterV.textContent=iterEl.value; if(clearTimeoutRef.id) clearTimeout(clearTimeoutRef.id); clearTimeoutRef.id=setTimeout(computeGL,150); });
+  document.getElementById('glOrig').addEventListener('click',()=>{ play(clip.slice(),GSR); });
+  document.getElementById('glRecon').addEventListener('click',()=>{ if(!glResult||glIters!==+iterEl.value) computeGL(); play(glResult.slice(),GSR); cap.textContent='Griffin–Lim at '+glIters+' iterations · spectral-convergence error '+glErr.toFixed(3)+'. Fewer iterations sound phasey; push the slider up to clean it.'; });
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  computeGL();
+})();
+
+// ── DEMO 2: Multi-Period Discriminator reshaper ───────────────
+(function mpd(){
+  const c=document.getElementById('mpdViz'); if(!c) return;
+  const cap=document.getElementById('mpdCap'), H=300;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const p0El=document.getElementById('mpdP0'), pEl=document.getElementById('mpdP');
+  function genPeriodic(P0,len){
+    const base=new Float32Array(P0);
+    for(let i=0;i<P0;i++){ const ph=2*Math.PI*i/P0; base[i]=Math.sin(ph)+0.5*Math.sin(2*ph+1.0)+0.3*Math.sin(3*ph+2.0); }
+    let m=0; for(let i=0;i<P0;i++) m=Math.max(m,Math.abs(base[i])); if(m>0) for(let i=0;i<P0;i++) base[i]/=m;
+    const x=new Float32Array(len);
+    for(let n=0;n<len;n++) x[n]=base[n%P0]+0.06*(Math.sin(n*12.9898)*43758.5453%1); // tiny deterministic wobble
+    return x;
+  }
+  function col(v){ const a=Math.max(-1,Math.min(1,v)); if(a>=0){ const t=a; return `rgb(${Math.round(40+t*200)},${Math.round(50+t*40)},${Math.round(80+t*42)})`; } const t=-a; return `rgb(${Math.round(40+t*30)},${Math.round(60+t*70)},${Math.round(90+t*150)})`; }
+  function draw(){
+    const P0=+p0El.value, p=+pEl.value; const len=330;
+    const x=genPeriodic(P0,len);
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const padX=16, plotW=W-2*padX;
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    // top: 1-D signal strip
+    const tTop=22, tH=54, tMid=tTop+tH/2;
+    ctx.fillText('1-D SIGNAL  (true period P₀ = '+P0+')', padX, 14);
+    ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(padX,tMid); ctx.lineTo(padX+plotW,tMid); ctx.stroke();
+    ctx.strokeStyle='#8b7bf0'; ctx.lineWidth=1.2; ctx.beginPath();
+    for(let n=0;n<len;n++){ const px=padX+n/(len-1)*plotW; const y=tMid-x[n]*tH*0.42; if(n===0)ctx.moveTo(px,y);else ctx.lineTo(px,y);} ctx.stroke();
+    // bottom: reshaped grid, width p
+    const rows=Math.floor(len/p);
+    const gTop=tTop+tH+30, gH=H-gTop-22;
+    ctx.fillText('RESHAPED TO WIDTH p = '+p+'  →  '+rows+' rows × '+p+' cols', padX, gTop-8);
+    const gW=Math.min(plotW, p*26);
+    const cellW=gW/p, cellH=gH/rows;
+    for(let r=0;r<rows;r++) for(let cc=0;cc<p;cc++){ const idx=r*p+cc; ctx.fillStyle=col(x[idx]); ctx.fillRect(padX+cc*cellW, gTop+r*cellH, cellW+0.6, cellH+0.6); }
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.strokeRect(padX,gTop,gW,rows*cellH);
+    // alignment metric: 1 - avg within-column variance / total variance
+    let tot=0,mean=0; for(let i=0;i<rows*p;i++) mean+=x[i]; mean/=(rows*p);
+    for(let i=0;i<rows*p;i++) tot+=(x[i]-mean)**2; tot/=(rows*p);
+    let within=0; for(let cc=0;cc<p;cc++){ let cm=0; for(let r=0;r<rows;r++) cm+=x[r*p+cc]; cm/=rows; for(let r=0;r<rows;r++) within+=(x[r*p+cc]-cm)**2; }
+    within/=(rows*p);
+    const align=Math.max(0,Math.min(1,1-within/(tot+1e-9)));
+    // meter (right of grid)
+    const mX=padX+gW+24; if(mX<W-90){
+      ctx.fillStyle='#8a8d9a'; ctx.fillText('column', mX, gTop+10); ctx.fillText('alignment', mX, gTop+24);
+      const mY=gTop+40, mW=Math.min(120,W-mX-20);
+      ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.strokeRect(mX,mY,mW,12);
+      ctx.fillStyle=align>0.8?'#5ce89a':'#e8a44a'; ctx.fillRect(mX,mY,mW*align,12);
+      ctx.fillStyle='#4ac7e8'; ctx.fillText((align*100).toFixed(0)+'%', mX, mY+28);
+      ctx.fillStyle=align>0.8?'#5ce89a':'#8a8d9a'; ctx.fillText(align>0.8?'ALIGNED — p matches period':'not aligned', mX, mY+46);
+    }
+  }
+  [p0El,pEl].forEach(el=>el.addEventListener('change',()=>{ draw(); const P0=+p0El.value,p=+pEl.value; cap.textContent=(p===P0)?('p = P₀ = '+p+' → columns are in phase; the 2-D discriminator sees clean vertical bands.'):('p = '+p+', P₀ = '+P0+' → phase drifts down each column; structure is smeared. Try p = '+P0+'.'); }));
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  draw();
+})();
+
+// ── DEMO 3: HiFi-GAN generator + MRF schematic ────────────────
+(function generator(){
+  const c=document.getElementById('genViz'); if(!c) return;
+  const cap=document.getElementById('genCap'), H=360;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  let hover=-1;
+  const DEFAULT='Hover a stage to read what it does. Mel frames (80×T) are upsampled ×8·8·2·2 = 256 to waveform rate, each stage followed by an MRF block fusing three dilated residual paths.';
+  const stages=[
+    {label:'mel', sub:'80 × T', col:'#8b7bf0', desc:'INPUT — an 80-band mel spectrogram at ~86 frames/s. Magnitudes only: phase was discarded. The generator must invent everything below.'},
+    {label:'conv 7×1', sub:'→512 ch', col:'#4ac7e8', desc:'INPUT CONV — a 7-tap convolution lifts the 80 mel bands to 512 feature channels before any upsampling.'},
+    {label:'↑8 + MRF', sub:'×8', col:'#e85a7a', desc:'UPSAMPLE ×8 — a transposed conv stretches the time axis 8×, then an MRF block fuses dilated residual paths (kernels 3·7·11). Channels halve to 256.'},
+    {label:'↑8 + MRF', sub:'×8', col:'#e85a7a', desc:'UPSAMPLE ×8 — second transposed conv, another 8× in time + MRF. Cumulative 64×. Channels 128.'},
+    {label:'↑2 + MRF', sub:'×2', col:'#e85a7a', desc:'UPSAMPLE ×2 — finer transposed conv (2×) + MRF. Cumulative 128×. Channels 64.'},
+    {label:'↑2 + MRF', sub:'×2', col:'#e85a7a', desc:'UPSAMPLE ×2 — final 2× brings the time axis to 256× the mel rate = the sample rate + MRF. Channels 32.'},
+    {label:'conv+tanh', sub:'→1 ch', col:'#5ce89a', desc:'OUTPUT CONV — a 7-tap conv collapses to a single channel; tanh bounds it to [-1,1]. Out: 22.05 kHz waveform.'},
+    {label:'wave', sub:'22.05 kHz', col:'#e8a44a', desc:'WAVEFORM — 22,050 samples/s of audio, produced in one feed-forward pass. 86 frames/s × 256 = 22,016 ≈ 22.05 kHz.'}
+  ];
+  let boxes=[];
+  function draw(){
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillStyle='#8a8d9a'; ctx.fillText('HiFi-GAN GENERATOR  —  mel → waveform, one feed-forward pass', 16, 16);
+    // pipeline row
+    const n=stages.length, padX=16, gap=8;
+    const rowY=44, boxH=54;
+    const totalGap=gap*(n-1); const boxW=(W-2*padX-totalGap)/n;
+    boxes=[];
+    for(let i=0;i<n;i++){
+      const x=padX+i*(boxW+gap), y=rowY;
+      boxes.push({x,y,w:boxW,h:boxH});
+      const on=(i===hover);
+      ctx.fillStyle=on?'rgba(232,90,122,0.18)':'#1a1d2a';
+      ctx.fillRect(x,y,boxW,boxH);
+      ctx.strokeStyle=on?stages[i].col:'#2a2d3a'; ctx.lineWidth=on?1.8:1; ctx.strokeRect(x,y,boxW,boxH);
+      // left color tab
+      ctx.fillStyle=stages[i].col; ctx.fillRect(x,y,3,boxH);
+      ctx.fillStyle=on?'#d4d6e0':'#c9cbd6'; ctx.font="11px 'Lucida Console',monospace"; ctx.textAlign='center';
+      ctx.fillText(stages[i].label, x+boxW/2, y+boxH/2-2);
+      ctx.fillStyle='#8a8d9a'; ctx.font="9px 'Lucida Console',monospace";
+      ctx.fillText(stages[i].sub, x+boxW/2, y+boxH/2+14);
+      if(i<n-1){ ctx.strokeStyle='rgba(139,123,240,0.5)'; ctx.lineWidth=1.4; ctx.beginPath(); const ax=x+boxW+1, ay=y+boxH/2; ctx.moveTo(ax,ay); ctx.lineTo(ax+gap-2,ay); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ax+gap-2,ay); ctx.lineTo(ax+gap-5,ay-3); ctx.lineTo(ax+gap-5,ay+3); ctx.closePath(); ctx.fillStyle='rgba(139,123,240,0.7)'; ctx.fill(); }
+    }
+    // MRF expansion below
+    ctx.textAlign='left'; ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace";
+    const mTop=132;
+    ctx.fillText('INSIDE ONE MRF BLOCK  —  sum of parallel dilated residual blocks', 16, mTop-6);
+    const kernels=[3,7,11], dils=[[1,3,5],[1,3,5],[1,3,5]];
+    const mX=40, mW=W-2*mX, laneH=48, laneGap=8;
+    // input node
+    ctx.fillStyle='#4ac7e8'; ctx.beginPath(); ctx.arc(mX-14, mTop+ (laneH*3+laneGap*2)/2, 5,0,7); ctx.fill();
+    for(let r=0;r<3;r++){
+      const ly=mTop+r*(laneH+laneGap);
+      ctx.fillStyle='rgba(232,90,122,0.10)'; ctx.fillRect(mX,ly,mW-70,laneH);
+      ctx.strokeStyle='#e85a7a'; ctx.lineWidth=1; ctx.strokeRect(mX,ly,mW-70,laneH);
+      ctx.fillStyle='#c9cbd6'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+      ctx.fillText('ResBlock  kernel '+kernels[r]+'   dilations ['+dils[r].join(',')+']', mX+10, ly+laneH/2-4);
+      ctx.fillStyle='#8a8d9a'; ctx.font="9px 'Lucida Console',monospace";
+      ctx.fillText(r===0?'short kernel → pitch-period detail':(r===2?'long dilated kernel → formant-scale envelope':'mid kernel → syllabic scale'), mX+10, ly+laneH/2+12);
+      // connector to sum
+      ctx.strokeStyle='rgba(232,90,122,0.5)'; ctx.beginPath(); ctx.moveTo(mX+mW-70,ly+laneH/2); ctx.lineTo(mX+mW-40,ly+laneH/2); ctx.stroke();
+      ctx.strokeStyle='rgba(74,199,232,0.5)'; ctx.beginPath(); ctx.moveTo(mX-14,ly+laneH/2); ctx.lineTo(mX,ly+laneH/2); ctx.stroke();
+    }
+    // sum node
+    const sx=mX+mW-34, sy=mTop+(laneH*3+laneGap*2)/2;
+    ctx.strokeStyle='#5ce89a'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(sx,sy,13,0,7); ctx.stroke();
+    ctx.fillStyle='#5ce89a'; ctx.font="14px 'Lucida Console',monospace"; ctx.textAlign='center'; ctx.fillText('Σ', sx, sy+5);
+    ctx.fillStyle='#8a8d9a'; ctx.font="9px 'Lucida Console',monospace"; ctx.fillText('÷3', sx, sy+26);
+  }
+  function pick(mx,my){ for(let i=0;i<boxes.length;i++){ const b=boxes[i]; if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h) return i; } return -1; }
+  c.addEventListener('mousemove',e=>{ const r=c.getBoundingClientRect(); const h=pick(e.clientX-r.left, e.clientY-r.top); if(h!==hover){ hover=h; draw(); cap.textContent = h>=0? stages[h].desc : DEFAULT; } });
+  c.addEventListener('mouseleave',()=>{ if(hover!==-1){ hover=-1; draw(); cap.textContent=DEFAULT; } });
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  draw();
+})();
+
+// ── hero animation: waveform morphing into spectrogram bars ───
+(function hero(){
+  const c=document.getElementById('heroCanvas'); if(!c) return;
+  const W=()=>Math.max(320,document.documentElement.clientWidth);
+  const H=()=>Math.max(400,Math.min(window.innerHeight,900));
+  let ctx=setupCanvas(c,W(),H());
+  const N=200; let ph=0; let last=performance.now();
+  function frame(now){
+    const w=W(),h=H(); if(c.width!==Math.round(w*DPR)||c.height!==Math.round(h*DPR)) ctx=setupCanvas(c,w,h);
+    const dt=Math.min(0.05,(now-last)/1000); last=now; ph+=dt*0.6;
+    ctx.fillStyle='rgba(10,11,15,0.22)'; ctx.fillRect(0,0,w,h);
+    const morph=0.5+0.5*Math.sin(ph*0.5); // 0 = waveform, 1 = bars
+    ctx.strokeStyle='rgba(74,199,232,0.75)'; ctx.lineWidth=1.6;
+    for(let i=0;i<N;i++){
+      const x=i/(N-1)*w;
+      const tt=i*0.12+ph*3;
+      const wav=Math.sin(tt)+0.5*Math.sin(tt*2.01)+0.3*Math.sin(tt*3.03);
+      const env=0.4+0.6*Math.abs(Math.sin(i*0.05+ph));
+      const barTop=h*0.5 - env*h*0.30*(0.5+0.5*Math.sin(i*0.7+ph*2));
+      const wy=h*0.5 - wav*h*0.09;
+      if(morph<0.5){ // waveform line
+        if(i===0){ctx.beginPath(); ctx.moveTo(x,wy);} else ctx.lineTo(x,wy);
+      }
+    }
+    if(morph<0.5) ctx.stroke();
+    if(morph>=0.5){ // spectrogram-ish bars
+      for(let i=0;i<N;i++){ const x=i/(N-1)*w; const env=Math.abs(Math.sin(i*0.09+ph*1.3))*Math.abs(Math.sin(i*0.3+ph)); const hh=env*h*0.34*(morph); ctx.fillStyle=`rgba(${60+env*120|0},${120+env*100|0},${200},${0.15+env*0.5})`; ctx.fillRect(x-1, h*0.5-hh, 3, hh*2); }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.addEventListener('resize',()=>{ ctx=setupCanvas(c,W(),H()); });
+})();
+
+// ── scroll-spy ────────────────────────────────────────────────
+(function toc(){
+  const links=document.querySelectorAll('nav#toc a');
+  const secs=Array.from(links).map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function onScroll(){ const y=window.scrollY+120; let k=0; for(let i=0;i<secs.length;i++){ if(secs[i].offsetTop<=y) k=i; } links.forEach(a=>a.classList.remove('active')); if(links[k]) links[k].classList.add('active'); }
+  window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+})();
+})();
+</script>
+</body>
+</html>
